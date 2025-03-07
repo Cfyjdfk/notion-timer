@@ -1,25 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
+
 const Timer: React.FC = () => {
   const [time, setTime] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [inputHours, setInputHours] = useState<string>("");
   const [inputMinutes, setInputMinutes] = useState<string>("");
-  
+
   const router = useRouter();
+  const [startTime, setStartTime] = useState<number | null>(null);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isRunning) {
-      interval = setInterval(() => {
-        setTime((prevTime) => (prevTime > 0 ? prevTime - 1 : 0));
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isRunning]);
-
-  useEffect(() => {
-    const { hours: hoursParam, minutes: minutesParam } = router.query;   
+    const { hours: hoursParam, minutes: minutesParam } = router.query;
 
     if (hoursParam || minutesParam) {
       const hours = parseInt((hoursParam as string) || "0");
@@ -28,6 +20,24 @@ const Timer: React.FC = () => {
       setTime(totalSeconds);
     }
   }, [router.query]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isRunning) {
+      if (!startTime) {
+        setStartTime(Date.now());
+      }
+      interval = setInterval(() => {
+        const currentTime = Date.now();
+        const elapsed = Math.floor((currentTime - (startTime || currentTime)) / 1000);
+        setTime(prevTime => Math.max(prevTime - elapsed, 0));
+        setStartTime(currentTime); // Update startTime to current time
+      }, 1000);
+    } else {
+      setStartTime(null);
+    }
+    return () => clearInterval(interval);
+  }, [isRunning, startTime]);
 
   const startPauseTimer = (): void => {
     setIsRunning(!isRunning);
@@ -40,6 +50,7 @@ const Timer: React.FC = () => {
     setTime(totalSeconds);
     setInputHours("");
     setInputMinutes("");
+    setIsRunning(false);
   };
 
   const formatTime = (): string => {
@@ -87,7 +98,7 @@ const Timer: React.FC = () => {
           onClick={setTimer}
           className="px-4 py-1 bg-gray-800 border border-gray-700 rounded hover:bg-gray-700 transition-colors text-lg"
         >
-          Set
+          {inputHours || inputMinutes ? "Set" : "Reset"}
         </button>
         {time !== 0 && (
           <button
