@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 
 const Timer: React.FC = () => {
@@ -8,8 +8,13 @@ const Timer: React.FC = () => {
   const [inputMinutes, setInputMinutes] = useState<string>("");
 
   const router = useRouter();
-  const [startTime, setStartTime] = useState<number | null>(null);
-
+  
+  // Use refs to track time-related values that persist between renders
+  const totalDurationRef = useRef<number>(0); // Total duration set for the timer
+  const startTimeRef = useRef<number | null>(null); // Timestamp when timer started
+  const pausedTimeRef = useRef<number>(0); // Accumulated paused time
+  
+  // Load timer from URL parameters
   useEffect(() => {
     const { hours: hoursParam, minutes: minutesParam } = router.query;
 
@@ -18,31 +23,97 @@ const Timer: React.FC = () => {
       const minutes = parseInt((minutesParam as string) || "0");
       const totalSeconds = hours * 3600 + minutes * 60;
       setTime(totalSeconds);
+      totalDurationRef.current = totalSeconds;
     }
   }, [router.query]);
 
+  // Main timer logic - works regardless of focus state
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isRunning) {
-      if (!startTime) {
-        setStartTime(Date.now());
-      }
-      interval = setInterval(() => {
-        const currentTime = Date.now();
-        const actualElapsed = Math.floor((currentTime - (startTime || currentTime)) / 1000);            
-
-        // Use the greater of the actual elapsed time or 1 second
-        const elapsed = Math.max(actualElapsed, 1) ;
+    let requestId: number;
+    
+    const updateTimer = () => {
+      if (isRunning && startTimeRef.current) {
+        const now = Date.now();
+        const elapsedSinceStart = Math.floor((now - startTimeRef.current) / 1000);
+        const newRemainingTime = Math.max(
+          totalDurationRef.current - (elapsedSinceStart + pausedTimeRef.current), 
+          0
+        );
         
-        setTime(prevTime => Math.max(prevTime - elapsed, 0));
-        setStartTime(currentTime); // Update startTime to current time
-      }, 1000);
+        setTime(newRemainingTime);
+        
+        // Stop timer when it reaches zero
+        if (newRemainingTime <= 0) {
+          setIsRunning(false);
+          startTimeRef.current = null;
+        } else {
+          // Continue updating
+          requestId = requestAnimationFrame(updateTimer);
+        }
+      }
+    };
+    
+    if (isRunning) {
+      // When starting the timer
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now();
+        totalDurationRef.current = time;
+      }
+      
+      // Start continuous updates
+      requestId = requestAnimationFrame(updateTimer);
     } else {
-      setStartTime(null);
+      // When pausing, update accumulated pause time
+      if (startTimeRef.current) {
+        const now = Date.now();
+        const elapsedSinceStart = Math.floor((now - startTimeRef.current) / 1000);
+        pausedTimeRef.current += elapsedSinceStart;
+        startTimeRef.current = null;
+      }
     }
-    return () => clearInterval(interval);
-  }, [isRunning, startTime]);
-  
+
+    return () => {
+      if (requestId) {
+        cancelAnimationFrame(requestId);
+      }
+    };
+  }, [isRunning, time]);
+
+  // Additional worker to ensure consistent updates even in background
+  useEffect(() => {
+    let worker: Worker | null = null;
+    
+    if (isRunning) {
+      // Create a worker that can run more reliably in the background
+      const workerCode = `
+        setInterval(() => {
+          self.postMessage('tick');
+        }, 1000);
+      `;
+      
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      worker = new Worker(URL.createObjectURL(blob));
+      
+      worker.onmessage = () => {
+        // Worker sends a message every second, forcing an update
+        if (startTimeRef.current) {
+          const now = Date.now();
+          const elapsedSinceStart = Math.floor((now - startTimeRef.current) / 1000);
+          const newRemainingTime = Math.max(
+            totalDurationRef.current - (elapsedSinceStart + pausedTimeRef.current), 
+            0
+          );
+          setTime(newRemainingTime);
+        }
+      };
+    }
+    
+    return () => {
+      if (worker) {
+        worker.terminate();
+      }
+    };
+  }, [isRunning]);
 
   const startPauseTimer = (): void => {
     setIsRunning(!isRunning);
@@ -52,10 +123,15 @@ const Timer: React.FC = () => {
     const hours = parseInt(inputHours) || 0;
     const minutes = parseInt(inputMinutes) || 0;
     const totalSeconds = hours * 3600 + minutes * 60;
+    
     setTime(totalSeconds);
+    totalDurationRef.current = totalSeconds;
+    
     setInputHours("");
     setInputMinutes("");
     setIsRunning(false);
+    startTimeRef.current = null;
+    pausedTimeRef.current = 0;
   };
 
   const formatTime = (): string => {
@@ -80,7 +156,7 @@ const Timer: React.FC = () => {
   return (
     <div className="w-full aspect-square bg-[#191919] text-white flex flex-col items-center justify-center p-5">
       <div className="text-6xl font-mono mb-8 tracking-wider">
-        {formatTime()}
+        {formatTime()}        
       </div>
       <div className="flex gap-3">
         <input
