@@ -29,39 +29,33 @@ const Timer: React.FC = () => {
 
   // Main timer logic - works regardless of focus state
   useEffect(() => {
-    let requestId: number;
-    
-    const updateTimer = () => {
-      if (isRunning && startTimeRef.current) {
-        const now = Date.now();
-        const elapsedSinceStart = Math.floor((now - startTimeRef.current) / 1000);
-        const newRemainingTime = Math.max(
-          totalDurationRef.current - (elapsedSinceStart + pausedTimeRef.current), 
-          0
-        );
-        
-        setTime(newRemainingTime);
-        
-        // Stop timer when it reaches zero
-        if (newRemainingTime <= 0) {
-          setIsRunning(false);
-          startTimeRef.current = null;
-        } else {
-          // Continue updating
-          requestId = requestAnimationFrame(updateTimer);
-        }
-      }
-    };
-    
     if (isRunning) {
       // When starting the timer
       if (!startTimeRef.current) {
         startTimeRef.current = Date.now();
-        totalDurationRef.current = time;
+        // Don't reset totalDurationRef here - only do it when setting a new timer
       }
       
-      // Start continuous updates
-      requestId = requestAnimationFrame(updateTimer);
+      const intervalId = setInterval(() => {
+        if (startTimeRef.current) {
+          const now = Date.now();
+          const elapsedSinceStart = Math.floor((now - startTimeRef.current) / 1000);
+          const newRemainingTime = Math.max(
+            totalDurationRef.current - (elapsedSinceStart + pausedTimeRef.current), 
+            0
+          );
+          
+          setTime(newRemainingTime);
+          
+          // Stop timer when it reaches zero
+          if (newRemainingTime <= 0) {
+            setIsRunning(false);
+            startTimeRef.current = null;
+          }
+        }
+      }, 100); // Update more frequently for better accuracy
+      
+      return () => clearInterval(intervalId);
     } else {
       // When pausing, update accumulated pause time
       if (startTimeRef.current) {
@@ -70,50 +64,9 @@ const Timer: React.FC = () => {
         pausedTimeRef.current += elapsedSinceStart;
         startTimeRef.current = null;
       }
+      return undefined;
     }
-
-    return () => {
-      if (requestId) {
-        cancelAnimationFrame(requestId);
-      }
-    };
-  }, [isRunning, time]);
-
-  // Additional worker to ensure consistent updates even in background
-  useEffect(() => {
-    let worker: Worker | null = null;
-    
-    if (isRunning) {
-      // Create a worker that can run more reliably in the background
-      const workerCode = `
-        setInterval(() => {
-          self.postMessage('tick');
-        }, 1000);
-      `;
-      
-      const blob = new Blob([workerCode], { type: 'application/javascript' });
-      worker = new Worker(URL.createObjectURL(blob));
-      
-      worker.onmessage = () => {
-        // Worker sends a message every second, forcing an update
-        if (startTimeRef.current) {
-          const now = Date.now();
-          const elapsedSinceStart = Math.floor((now - startTimeRef.current) / 1000);
-          const newRemainingTime = Math.max(
-            totalDurationRef.current - (elapsedSinceStart + pausedTimeRef.current), 
-            0
-          );
-          setTime(newRemainingTime);
-        }
-      };
-    }
-    
-    return () => {
-      if (worker) {
-        worker.terminate();
-      }
-    };
-  }, [isRunning]);
+  }, [isRunning]); // Only depend on isRunning, not time
 
   const startPauseTimer = (): void => {
     setIsRunning(!isRunning);
@@ -124,14 +77,15 @@ const Timer: React.FC = () => {
     const minutes = parseInt(inputMinutes) || 0;
     const totalSeconds = hours * 3600 + minutes * 60;
     
+    // Reset everything
     setTime(totalSeconds);
     totalDurationRef.current = totalSeconds;
+    pausedTimeRef.current = 0;
+    setIsRunning(false);
+    startTimeRef.current = null;
     
     setInputHours("");
     setInputMinutes("");
-    setIsRunning(false);
-    startTimeRef.current = null;
-    pausedTimeRef.current = 0;
   };
 
   const formatTime = (): string => {
