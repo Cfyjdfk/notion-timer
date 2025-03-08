@@ -29,7 +29,11 @@ const Timer: React.FC = () => {
       }
       interval = setInterval(() => {
         const currentTime = Date.now();
-        const elapsed = Math.floor((currentTime - (startTime || currentTime)) / 1000);
+        const actualElapsed = Math.floor((currentTime - (startTime || currentTime)) / 1000);            
+
+        // Use the greater of the actual elapsed time or 1 second
+        const elapsed = Math.max(actualElapsed, 1) ;
+        
         setTime(prevTime => Math.max(prevTime - elapsed, 0));
         setStartTime(currentTime); // Update startTime to current time
       }, 1000);
@@ -38,6 +42,7 @@ const Timer: React.FC = () => {
     }
     return () => clearInterval(interval);
   }, [isRunning, startTime]);
+  
 
   const startPauseTimer = (): void => {
     setIsRunning(!isRunning);
